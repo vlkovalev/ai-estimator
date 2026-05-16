@@ -12,6 +12,7 @@
   "type": "commonjs",
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@vercel/speed-insights": "^2.0.0",
     "anthropic": "^0.0.0",
     "cors": "^2.8.6",
     "csv-parser": "^3.2.1",
