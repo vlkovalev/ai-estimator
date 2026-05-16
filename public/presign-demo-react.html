@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AI Estimator React Demo</title>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; margin: 0; padding: 0; background: #f5f7fb; color: #111827; }
+    .app { max-width: 900px; margin: 0 auto; padding: 32px; }
+    .card { background: white; border-radius: 18px; box-shadow: 0 22px 45px rgba(15, 23, 42, 0.08); padding: 28px; margin-bottom: 24px; }
+    h1 { margin: 0 0 16px; font-size: 2rem; }
+    label { display: block; margin-bottom: 14px; font-weight: 600; }
+    input, textarea, button { width: 100%; font-size: 1rem; border-radius: 12px; border: 1px solid #d1d5db; padding: 12px; box-sizing: border-box; }
+    textarea { min-height: 120px; resize: vertical; }
+    button { background: #2563eb; color: white; border: none; cursor: pointer; transition: background .2s ease; }
+    button:hover { background: #1d4ed8; }
+    .muted { color: #6b7280; }
+    .grid { display: grid; gap: 16px; grid-template-columns: 1fr 1fr; }
+    .wide { grid-column: 1 / -1; }
+    pre { white-space: pre-wrap; word-break: break-word; background: #f3f4f6; padding: 16px; border-radius: 12px; overflow-x: auto; }
+    .history-item { border-top: 1px solid #e5e7eb; padding: 12px 0; }
+    .chip { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #eff6ff; color: #1d4ed8; font-size: .9rem; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div id="root" class="app"></div>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script>
+    const { useState, useEffect } = React;
+
+    const presign = async (filename, contentType) => {
+      const resp = await fetch('/api/presign-upload', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ filename, contentType })
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      return resp.json();
+    };
+
+    const uploadToUrl = async (url, file) => {
+      const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+      if (!resp.ok) throw new Error(`Upload failed (${resp.status})`);
+    };
+
+    function App() {
+      const [costFile, setCostFile] = useState(null);
+      const [sampleFile, setSampleFile] = useState(null);
+      const [drawingFiles, setDrawingFiles] = useState([]);
+      const [notes, setNotes] = useState('Standard custom home');
+      const [status, setStatus] = useState('Ready to upload files.');
+      const [result, setResult] = useState(null);
+      const [history, setHistory] = useState([]);
+      const [working, setWorking] = useState(false);
+      const [error, setError] = useState(null);
+
+      useEffect(() => {
+        const stored = JSON.parse(localStorage.getItem('estimationHistory') || '[]');
+        setHistory(stored);
+      }, []);
+
+      const saveHistory = (entry) => {
+        const next = [entry, ...history].slice(0, 30);
+        setHistory(next);
+        localStorage.setItem('estimationHistory', JSON.stringify(next));
+      };
+
+      const handleSubmit = async () => {
+        setError(null);
+        if (!costFile || !sampleFile) {
+          setError('Cost codes and sample estimate files are required.');
+          return;
+        }
+        setWorking(true);
+        setStatus('Requesting presigned URLs...');
+
+        try {
+          const costPresign = await presign(costFile.name, costFile.type || 'text/csv');
+          const samplePresign = await presign(sampleFile.name, sampleFile.type || 'text/csv');
+          const drawingKeys = [];
+
+          for (const file of drawingFiles) {
+            setStatus(`Presigning ${file.name}...`);
+            const presignInfo = await presign(file.name, file.type || 'application/pdf');
+            drawingKeys.push(presignInfo.key);
+            setStatus(`Uploading ${file.name}...`);
+            await uploadToUrl(presignInfo.url, file);
+          }
+
+          setStatus('Uploading cost and sample files...');
+          await uploadToUrl(costPresign.url, costFile);
+          await uploadToUrl(samplePresign.url, sampleFile);
+
+          setStatus('Calling /api/estimate...');
+          const resp = await fetch('/api/estimate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ costCodeKey: costPresign.key, sampleEstimateKey: samplePresign.key, drawingKeys: JSON.stringify(drawingKeys), projectNotes: notes })
+          });
+          const json = await resp.json();
+          if (!resp.ok) throw new Error(json.error || 'Estimate request failed');
+          setResult(json);
+          setStatus('Estimate completed successfully.');
+          saveHistory({ ts: new Date().toISOString(), inputKeys: json.inputKeys, csvDownloadPath: json.csvDownloadPath, summary: json.estimate?.length ? `${json.estimate.length} rows` : 'no estimate' });
+        } catch (err) {
+          setError(err.message);
+          setStatus('Failed.');
+        } finally {
+          setWorking(false);
+        }
+      };
+
+      return React.createElement('div', null,
+        React.createElement('div', { className: 'card' },
+          React.createElement('h1', null, 'AI Estimator Demo'),
+          React.createElement('p', { className: 'muted' }, 'Upload CSVs and PDFs directly to storage with presigned URLs, then run the estimate serverless workflow.'),
+          React.createElement('div', { className: 'grid' },
+            React.createElement('label', null, 'Cost Codes CSV', React.createElement('input', { type: 'file', accept: '.csv', onChange: (e) => setCostFile(e.target.files[0]) })),
+            React.createElement('label', null, 'Sample Estimate CSV', React.createElement('input', { type: 'file', accept: '.csv', onChange: (e) => setSampleFile(e.target.files[0]) })),
+            React.createElement('label', { className: 'wide' }, 'Drawings (PDFs)', React.createElement('input', { type: 'file', accept: 'application/pdf', multiple: true, onChange: (e) => setDrawingFiles(Array.from(e.target.files)) })),
+            React.createElement('label', { className: 'wide' }, 'Project Notes', React.createElement('textarea', { value: notes, onChange: (e) => setNotes(e.target.value) }))
+          ),
+          React.createElement('button', { onClick: handleSubmit, disabled: working }, working ? 'Running estimate...' : 'Upload and Estimate'),
+          React.createElement('p', { className: 'muted' }, status),
+          error && React.createElement('p', { style: { color: '#b91c1c' } }, error)
+        ),
+        React.createElement('div', { className: 'card' },
+          React.createElement('h2', null, 'Latest Result'),
+          result ? React.createElement('pre', null, JSON.stringify(result, null, 2)) : React.createElement('p', { className: 'muted' }, 'No result yet.')
+        ),
+        React.createElement('div', { className: 'card' },
+          React.createElement('h2', null, 'Recent History'),
+          history.length === 0 ? React.createElement('p', { className: 'muted' }, 'No history saved yet.') : history.map((item, idx) => React.createElement('div', { key: idx, className: 'history-item' },
+            React.createElement('div', null, React.createElement('span', { className: 'chip' }, item.ts), item.summary),
+            item.csvDownloadPath && React.createElement('div', null, React.createElement('a', { href: item.csvDownloadPath, target: '_blank' }, 'Download estimate CSV'))
+          ))
+        )
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>

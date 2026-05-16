@@ -1,0 +1,83 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Presign Upload Demo</title>
+  <style>body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial;margin:20px}label{display:block;margin-top:10px}button{margin-top:10px}</style>
+</head>
+<body>
+  <h2>Presign Upload -> Estimate Demo</h2>
+  <label>Cost Codes CSV <input id="cost" type="file" accept=".csv"/></label>
+  <label>Sample Estimate CSV <input id="sample" type="file" accept=".csv"/></label>
+  <label>Drawings (PDFs) <input id="drawings" type="file" accept="application/pdf" multiple/></label>
+  <label>Project Notes <textarea id="notes" rows="4" cols="60">Standard custom home</textarea></label>
+  <button id="run">Upload & Run Estimate</button>
+  <pre id="out"></pre>
+
+<script>
+async function presign(filename, contentType){
+  const resp = await fetch('/api/presign-upload', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ filename, contentType }) });
+  if(!resp.ok) throw new Error('Presign failed: '+(await resp.text()));
+  return resp.json();
+}
+
+async function uploadToUrl(url, file){
+  const resp = await fetch(url, { method: 'PUT', headers: { 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+  if(!resp.ok) throw new Error('Upload failed');
+}
+
+document.getElementById('run').addEventListener('click', async ()=>{
+  const out = document.getElementById('out');
+  out.textContent = 'Starting...';
+  try{
+    const costFile = document.getElementById('cost').files[0];
+    const sampleFile = document.getElementById('sample').files[0];
+    const drawingFiles = Array.from(document.getElementById('drawings').files || []);
+    if(!costFile || !sampleFile) { out.textContent='Please choose cost codes and sample estimate files'; return; }
+
+    out.textContent = 'Requesting presigned URLs...';
+    const costPresign = await presign(costFile.name, costFile.type || 'text/csv');
+    const samplePresign = await presign(sampleFile.name, sampleFile.type || 'text/csv');
+    const drawingKeys = [];
+    for(const f of drawingFiles){
+      const p = await presign(f.name, f.type || 'application/pdf');
+      drawingKeys.push(p.key);
+      out.textContent = `Uploading ${f.name}...`;
+      await uploadToUrl(p.url, f);
+    }
+
+    out.textContent = 'Uploading cost & sample...';
+    await uploadToUrl(costPresign.url, costFile);
+    await uploadToUrl(samplePresign.url, sampleFile);
+
+    out.textContent = 'Calling /api/estimate...';
+    const resp = await fetch('/api/estimate', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body: JSON.stringify({ costCodeKey: costPresign.key, sampleEstimateKey: samplePresign.key, drawingKeys: JSON.stringify(drawingKeys), projectNotes: document.getElementById('notes').value })
+    });
+    const json = await resp.json();
+    out.textContent = JSON.stringify(json, null, 2);
+    // persist history
+    const history = JSON.parse(localStorage.getItem('estimationHistory') || '[]');
+    history.unshift({ ts: new Date().toISOString(), request: { costKey: costPresign.key, sampleKey: samplePresign.key }, response: json });
+    localStorage.setItem('estimationHistory', JSON.stringify(history.slice(0,50)));
+    renderHistory();
+  }catch(err){
+    document.getElementById('out').textContent = 'Error: '+err.message;
+    console.error(err);
+  }
+});
+
+function renderHistory(){
+  const pre = document.getElementById('out');
+  const hist = JSON.parse(localStorage.getItem('estimationHistory') || '[]');
+  if(hist.length===0) return;
+  const lines = hist.map(h=>`${h.ts} -> ${h.response && h.response.csvDownloadPath ? h.response.csvDownloadPath : JSON.stringify(h.response)}`);
+  pre.textContent = lines.join('\n');
+}
+
+window.addEventListener('load', renderHistory);
+</script>
+</body>
+</html>
