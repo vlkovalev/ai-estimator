@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Construction Estimator | 30-Minute Estimates</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+      background: #f0f4f8;
+      padding: 2rem 1rem;
+      color: #1e293b;
+    }
+    .container { max-width: 1400px; margin: 0 auto; }
+    .hero { text-align: center; margin-bottom: 2rem; }
+    .hero h1 {
+      font-size: 2.5rem;
+      background: linear-gradient(135deg, #0f2b3d, #1e6f5c);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .card {
+      background: white;
+      border-radius: 1.5rem;
+      padding: 1.5rem;
+      box-shadow: 0 4px 6px -2px rgba(0,0,0,0.05);
+      border: 1px solid #e2e8f0;
+    }
+    .card h2 { font-size: 1.25rem; margin-bottom: 1rem; }
+    .file-input { margin-bottom: 1rem; }
+    label { font-weight: 500; display: block; margin-bottom: 0.25rem; }
+    input[type="file"], textarea {
+      width: 100%;
+      padding: 0.5rem;
+      border: 1px solid #cbd5e1;
+      border-radius: 0.75rem;
+      background: #f8fafc;
+    }
+    textarea { min-height: 80px; }
+    button {
+      background: #0f2b3d;
+      color: white;
+      border: none;
+      padding: 0.75rem 1.5rem;
+      border-radius: 2rem;
+      font-weight: 600;
+      cursor: pointer;
+      width: 100%;
+      font-size: 1rem;
+    }
+    button:hover { background: #1e6f5c; }
+    .loading { text-align: center; padding: 2rem; color: #1e6f5c; display: none; }
+    .results { margin-top: 2rem; }
+    .tabs { display: flex; gap: 0.5rem; border-bottom: 1px solid #e2e8f0; margin-bottom: 1rem; }
+    .tab-btn {
+      background: none;
+      color: #475569;
+      width: auto;
+      padding: 0.5rem 1rem;
+      border-radius: 2rem;
+    }
+    .tab-btn.active { background: #e2e8f0; color: #0f2b3d; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.8rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #e2e8f0; }
+    th { background: #f1f5f9; }
+    .allowance-item, .iea-item {
+      background: #f8fafc;
+      padding: 0.75rem;
+      border-radius: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .error { color: #dc2626; background: #fee2e2; padding: 1rem; border-radius: 1rem; margin-top: 1rem; }
+    @media (max-width: 800px) { .grid-2 { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="hero">
+    <span style="background:#e2e8f0; padding:0.25rem 0.75rem; border-radius:999px;">⚡ 30-Minute Estimates</span>
+    <h1>AI Custom Home Estimator</h1>
+    <p>Upload drawings, cost codes, and your style — AI does the rest.</p>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>📄 1. Project Drawings (PDF)</h2>
+      <input type="file" id="drawings" accept=".pdf" multiple>
+      <h2 style="margin-top:1rem">📊 2. Cost Codes (CSV)</h2>
+      <input type="file" id="costCodes" accept=".csv">
+      <h2 style="margin-top:1rem">📝 3. Sample Estimate (CSV)</h2>
+      <input type="file" id="sampleEstimate" accept=".csv">
+      <h2 style="margin-top:1rem">✏️ 4. Project Notes (optional)</h2>
+      <textarea id="projectNotes" placeholder="e.g., Mid-range finishes, 2,800 sq ft, walkout basement..."></textarea>
+    </div>
+    <div class="card">
+      <h2>🚀 Run Estimation</h2>
+      <button id="runEstimateBtn">Start AI Estimate →</button>
+      <div id="loading" class="loading">⏳ AI is analyzing drawings and building your estimate... (30-60 seconds)</div>
+      <div id="errorMsg"></div>
+      <div style="margin-top:1rem; font-size:0.8rem; color:#475569">
+        <strong>How it works:</strong><br>
+        1. We extract text from PDFs<br>
+        2. AI follows 10-step estimator process<br>
+        3. Returns estimate table, allowances, IEA doc<br>
+        4. Download CSV for Buildwise/Excel
+      </div>
+    </div>
+  </div>
+
+  <div class="results" id="results" style="display:none;">
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="estimate">📋 Estimate Table</button>
+      <button class="tab-btn" data-tab="allowances">💰 Allowances</button>
+      <button class="tab-btn" data-tab="iea">📑 Inclusions / Exclusions / Assumptions</button>
+    </div>
+    <div id="estimateTab" class="tab-content active">
+      <div style="overflow-x:auto"><table id="estimateTable"><thead><tr><th>Cost Code</th><th>Scope</th><th>Qty</th><th>Unit</th><th>Unit Cost</th><th>Total</th><th>COG</th></tr></thead><tbody></tbody></table></div>
+      <button id="downloadCsvBtn" style="width:auto; margin-top:1rem; background:#1e6f5c;">⬇️ Download CSV for Buildwise</button>
+    </div>
+    <div id="allowancesTab" class="tab-content"><div id="allowancesList"></div></div>
+    <div id="ieaTab" class="tab-content">
+      <h4>✅ Inclusions</h4><div id="inclusionsList"></div>
+      <h4>❌ Exclusions</h4><div id="exclusionsList"></div>
+      <h4>📐 Assumptions</h4><div id="assumptionsList"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const runBtn = document.getElementById('runEstimateBtn');
+  const loadingDiv = document.getElementById('loading');
+  const resultsDiv = document.getElementById('results');
+  const errorDiv = document.getElementById('errorMsg');
+
+  runBtn.addEventListener('click', async () => {
+    const drawings = document.getElementById('drawings').files;
+    const costCodes = document.getElementById('costCodes').files[0];
+    const sampleEstimate = document.getElementById('sampleEstimate').files[0];
+    const projectNotes = document.getElementById('projectNotes').value;
+
+    if (!costCodes || !sampleEstimate) {
+      errorDiv.innerHTML = '<div class="error">❌ Please upload both Cost Codes CSV and Sample Estimate CSV</div>';
+      return;
+    }
+
+    const formData = new FormData();
+    for (let file of drawings) formData.append('drawings', file);
+    formData.append('costCodes', costCodes);
+    formData.append('sampleEstimate', sampleEstimate);
+    formData.append('projectNotes', projectNotes);
+
+    loadingDiv.style.display = 'block';
+    errorDiv.innerHTML = '';
+    resultsDiv.style.display = 'none';
+
+    try {
+      const response = await fetch('/api/estimate', { method: 'POST', body: formData });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || 'Estimation failed');
+
+      const tbody = document.querySelector('#estimateTable tbody');
+      tbody.innerHTML = '';
+      data.estimate.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${row.CostCode || row.cost_code || ''}</td>
+          <td>${row.ScopeDescription || row.scope || ''}</td>
+          <td>${row.Quantity || row.qty || ''}</td>
+          <td>${row.Unit || row.unit || ''}</td>
+          <td>$${parseFloat(row.UnitCost || row.unit_cost || 0).toFixed(2)}</td>
+          <td>$${parseFloat(row.Total || row.total || 0).toFixed(2)}</td>
+          <td>${row.COG || row.cog || ''}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('allowancesList').innerHTML = data.allowances.map(a => `<div class="allowance-item">💰 ${a}</div>`).join('') || '<p>No allowances specified.</p>';
+      document.getElementById('inclusionsList').innerHTML = (data.iea.inclusions || []).map(i => `<div class="iea-item">✅ ${i}</div>`).join('') || '<p>None listed.</p>';
+      document.getElementById('exclusionsList').innerHTML = (data.iea.exclusions || []).map(e => `<div class="iea-item">❌ ${e}</div>`).join('') || '<p>None listed.</p>';
+      document.getElementById('assumptionsList').innerHTML = (data.iea.assumptions || []).map(a => `<div class="iea-item">📐 ${a}</div>`).join('') || '<p>None listed.</p>';
+
+      if (data.csvDownloadPath) {
+        document.getElementById('downloadCsvBtn').onclick = () => window.location.href = data.csvDownloadPath;
+      }
+
+      resultsDiv.style.display = 'block';
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.onclick = () => {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+          document.getElementById(btn.dataset.tab + 'Tab').classList.add('active');
+        };
+      });
+    } catch (err) {
+      errorDiv.innerHTML = `<div class="error">⚠️ Error: ${err.message}</div>`;
+    } finally {
+      loadingDiv.style.display = 'none';
+    }
+  });
+</script>
+</body>
+</html>
